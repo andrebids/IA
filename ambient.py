@@ -61,7 +61,7 @@ def atualizar_lista_modelos():
     
     combobox_modelos['values'] = modelos
     if modelos:
-        combobox_modelos.set(modelos[0])
+        combobox_modelos.set(modelos[-1])  # Seleciona o último modelo da lista
     
     # Se não houver modelos treinados, desabilita o Combobox
     if len(modelos) == 1:
@@ -77,6 +77,19 @@ combobox_modelos.pack(pady=(0, 10), fill=tk.X)
 atualizar_lista_modelos()  # Preenche a lista de modelos inicialmente
 
 historico = []
+
+def carregar_historico():
+    global historico
+    arquivo_historico = os.path.join(pasta_projeto, "historico.json")
+    if os.path.exists(arquivo_historico):
+        with open(arquivo_historico, 'r') as f:
+            historico = json.load(f)
+    atualizar_historico()
+
+def salvar_historico():
+    arquivo_historico = os.path.join(pasta_projeto, "historico.json")
+    with open(arquivo_historico, 'w') as f:
+        json.dump(historico, f)
 
 def selecionar_imagem():
     arquivo = filedialog.askopenfilename(filetypes=[("Imagens", "*.png *.jpg *.jpeg")])
@@ -128,6 +141,7 @@ def converter_imagem():
         data_hora = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         historico.append(f"{data_hora} - {nome_arquivo} (Modelo: {modelo})")
         atualizar_historico()
+        salvar_historico()
         botao_abrir_resultado.config(state=tk.NORMAL)
     except subprocess.CalledProcessError as e:
         messagebox.showerror("Erro", f"Ocorreu um erro ao converter a imagem: {e}")
@@ -143,6 +157,19 @@ def abrir_resultado():
         os.startfile(caminho)
     else:
         messagebox.showerror("Erro", "Nenhuma imagem convertida disponível.")
+
+def abrir_resultado_historico(event):
+    selecao = lista_historico.curselection()
+    if selecao:
+        indice = selecao[0]
+        item = lista_historico.get(indice)
+        # Extrair o nome do arquivo do item do histórico
+        nome_arquivo = item.split(" - ")[1].split(" (Modelo:")[0]
+        caminho_completo = os.path.join(pasta_saida, nome_arquivo)
+        if os.path.exists(caminho_completo):
+            os.startfile(caminho_completo)
+        else:
+            messagebox.showerror("Erro", f"O arquivo {nome_arquivo} não foi encontrado.")
 
 estilo = ttk.Style()
 estilo.configure("TButton", padding=10, font=("Arial", 12))
@@ -168,6 +195,11 @@ label_historico.pack(pady=(0, 5))
 
 lista_historico = tk.Listbox(frame_historico, width=50, height=10, font=("Arial", 10))
 lista_historico.pack(fill=tk.BOTH, expand=True)
+lista_historico.bind('<Double-1>', abrir_resultado_historico)
+
+# Adicionar uma label com instruções
+label_instrucoes = ttk.Label(frame_historico, text="Clique duplo para abrir a imagem", font=("Arial", 9, "italic"))
+label_instrucoes.pack(pady=(5, 0))
 
 # Aba de Treinamento
 aba_treinamento = ttk.Frame(notebook)
@@ -413,5 +445,6 @@ ttk.Button(frame_treinamento, text="Gerar Conjuntos de Teste", command=gerar_con
 
 # Carregar configurações salvas
 carregar_configuracoes()
+carregar_historico()
 
 janela.mainloop()
