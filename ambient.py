@@ -362,24 +362,52 @@ def mostrar_arquivos_gerados():
 
 def gerar_conjuntos_teste():
     try:
-        os.makedirs(os.path.join(pasta_dados, "test"), exist_ok=True)
-        os.makedirs(os.path.join(pasta_dados, "train"), exist_ok=True)
-        imagens = [f for f in os.listdir(pasta_dados) if f.endswith(('.png', '.jpg', '.jpeg'))]
-        if not imagens:
-            messagebox.showwarning("Aviso", "Sem imagens na pasta.")
+        # Verifica se existem as pastas necessárias
+        for pasta in [pasta_treino_dia, pasta_treino_noite, pasta_teste_dia, pasta_teste_noite]:
+            os.makedirs(pasta, exist_ok=True)
+        
+        # Obter imagens das pastas de treino atuais
+        imagens_dia = [f for f in os.listdir(pasta_treino_dia) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        imagens_noite = [f for f in os.listdir(pasta_treino_noite) if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        
+        if not imagens_dia or not imagens_noite:
+            messagebox.showwarning("Aviso", "Sem imagens suficientes nas pastas de treino.")
             return
-        num_teste = max(1, int(len(imagens) * 0.2))
-        imagens_teste = random.sample(imagens, num_teste)
-        for imagem in imagens:
-            origem = os.path.join(pasta_dados, imagem)
-            if imagem in imagens_teste:
-                destino = os.path.join(pasta_dados, "test", imagem)
-            else:
-                destino = os.path.join(pasta_dados, "train", imagem)
+        
+        # Calcular quantidade de imagens para teste (20%)
+        num_teste_dia = max(1, int(len(imagens_dia) * 0.2))
+        num_teste_noite = max(1, int(len(imagens_noite) * 0.2))
+        
+        # Selecionar aleatoriamente imagens para teste
+        imagens_teste_dia = random.sample(imagens_dia, num_teste_dia)
+        imagens_teste_noite = random.sample(imagens_noite, num_teste_noite)
+        
+        # Mover imagens dia
+        for imagem in imagens_teste_dia:
+            origem = os.path.join(pasta_treino_dia, imagem)
+            destino = os.path.join(pasta_teste_dia, imagem)
             shutil.move(origem, destino)
-        messagebox.showinfo("Sucesso", f"Dados gerados:\nTeste: {num_teste}\nTreino: {len(imagens) - num_teste}")
+        
+        # Mover imagens noite
+        for imagem in imagens_teste_noite:
+            origem = os.path.join(pasta_treino_noite, imagem)
+            destino = os.path.join(pasta_teste_noite, imagem)
+            shutil.move(origem, destino)
+        
+        # Mostrar resumo
+        mensagem = f"""Divisão concluída:
+        Dia:
+        - Treino: {len(imagens_dia) - num_teste_dia}
+        - Teste: {num_teste_dia}
+        
+        Noite:
+        - Treino: {len(imagens_noite) - num_teste_noite}
+        - Teste: {num_teste_noite}"""
+        
+        messagebox.showinfo("Sucesso", mensagem)
+        
     except Exception as e:
-        messagebox.showerror("Erro", f"Erro: {e}")
+        messagebox.showerror("Erro", f"Erro ao dividir imagens: {str(e)}")
 
 def mostrar_historico():
     janela_historico = tk.Toplevel(janela)
