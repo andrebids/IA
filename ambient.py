@@ -254,41 +254,51 @@ def executar_treinamento():
         comando = [
             sys.executable,
             os.path.join(pasta_projeto, "src", "train_cyclegan_turbo.py"),
-            "--enable_xformers_memory_efficient_attention",
-            "--gradient_accumulation_steps", "1",
-            "--mixed_precision", "fp16",
-            "--num_train_steps", passos_treinamento.get(),
-            "--learning_rate", taxa_aprendizagem.get(),
-            "--train_batch_size", tamanho_lote.get(),
-            "--seed", "42",
             
-            # Argumentos do GAN
-            "--gan_disc_type", "vagan_clip",
-            "--gan_loss_type", "multilevel_sigmoid",
-            "--lambda_gan", "0.5",
-            "--lambda_idt", "1",
-            "--lambda_cycle", "1",
-            "--lambda_cycle_lpips", "10.0",
-            "--lambda_idt_lpips", "1.0",
-            
-            # Argumentos de validação
-            "--validation_steps", "500",
-            "--validation_num_images", "-1",
-            "--viz_freq", "20",
-            
-            # Argumentos do otimizador
-            "--lr_scheduler", "constant",
-            "--lr_warmup_steps", "500",
-            
-            # Argumentos de diretório
-            "--output_dir", pasta_saida,
-            "--data_dir", pasta_dados,
-            
-            # Argumentos do W&B
-            "--wandb_api_key", config.get('wandb_api_key', ''),
-            "--wandb_project_name", config.get('wandb_project_name', 'diaparanoite'),
-            "--report_to", "wandb"
+    # Argumentos obrigatórios
+    "--dataset_folder", pasta_dados,
+    "--train_img_prep", "resized_crop_512",
+    "--val_img_prep", "resized_crop_512",
+    "--output_dir", pasta_saida,
+    "--tracker_project_name", config.get('wandb_project_name', 'diaparanoite'),
+    
+    # Argumentos do modelo
+    "--pretrained_model_name_or_path", "CompVis/stable-diffusion-v1-4",
+    "--lora_rank_unet", "128",
+    "--lora_rank_vae", "4",
+    
+    # Argumentos de treinamento
+    "--max_train_steps", passos_treinamento.get(),
+    "--learning_rate", taxa_aprendizagem.get(),
+    "--train_batch_size", tamanho_lote.get(),
+    "--seed", "42",
+    
+    # Argumentos do GAN
+    "--gan_disc_type", "vagan_clip",
+    "--gan_loss_type", "multilevel_sigmoid",
+    "--lambda_gan", "0.5",
+    "--lambda_idt", "1",
+    "--lambda_cycle", "1",
+    "--lambda_cycle_lpips", "10.0",
+    "--lambda_idt_lpips", "1.0",
+    
+    # Otimização e memória
+    "--gradient_accumulation_steps", "1",
+    "--enable_xformers_memory_efficient_attention",
+    "--adam_beta1", "0.9",
+    "--adam_beta2", "0.999",
+    "--adam_weight_decay", "1e-2",
+    
+    # Validação e logging
+    "--validation_steps", "500",
+    "--validation_num_images", "-1",
+    "--viz_freq", "20",
+    "--checkpointing_steps", "500",
+    "--report_to", "wandb"
         ]
+
+        # Adicionar API key do W&B como variável de ambiente
+        os.environ["WANDB_API_KEY"] = config.get('wandb_api_key', '')
         
         # Registrar início do treino
         info_treinamento = {
@@ -690,3 +700,4 @@ def salvar_wandb_key():
     except Exception as e:
         print(f"Erro ao salvar chave W&B: {str(e)}")
         messagebox.showerror("Erro", f"Erro ao salvar configurações: {str(e)}")
+
