@@ -223,6 +223,19 @@ def atualizar_dependencias():
         except subprocess.CalledProcessError as e:
             print(f"Erro ao atualizar {dep}: {e}")
     messagebox.showinfo("Atualização Concluída", "As dependências foram atualizadas.")
+    
+def reinstalar_huggingface():
+    """Reinstala a versão específica do huggingface-hub"""
+    try:
+        # Primeiro desinstala a versão atual
+        subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "huggingface-hub", "-y"])
+        messagebox.showinfo("Progresso", "Huggingface-hub desinstalado. Instalando versão 0.25.2...")
+        
+        # Instala a versão específica
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "huggingface-hub==0.25.2"])
+        messagebox.showinfo("Sucesso", "Huggingface-hub 0.25.2 instalado com sucesso!")
+    except subprocess.CalledProcessError as e:
+        messagebox.showerror("Erro", f"Falha ao reinstalar huggingface-hub: {e}")
 
 def instalar_triton():
     triton_url = "https://huggingface.co/madbuda/triton-windows-builds/resolve/main/triton-3.0.0-cp310-cp310-win_amd64.whl"
@@ -255,51 +268,44 @@ def executar_treinamento():
             sys.executable,
             os.path.join(pasta_projeto, "src", "train_cyclegan_turbo.py"),
             
-    # Argumentos obrigatórios
-    "--dataset_folder", pasta_dados,
-    "--train_img_prep", "resized_crop_512",
-    "--val_img_prep", "resized_crop_512",
-    "--output_dir", pasta_saida,
-    "--tracker_project_name", config.get('wandb_project_name', 'diaparanoite'),
-    
-    # Argumentos do modelo
-    "--pretrained_model_name_or_path", "CompVis/stable-diffusion-v1-4",
-    "--lora_rank_unet", "128",
-    "--lora_rank_vae", "4",
-    
-    # Argumentos de treinamento
-    "--max_train_steps", passos_treinamento.get(),
-    "--learning_rate", taxa_aprendizagem.get(),
-    "--train_batch_size", tamanho_lote.get(),
-    "--seed", "42",
-    
-    # Argumentos do GAN
-    "--gan_disc_type", "vagan_clip",
-    "--gan_loss_type", "multilevel_sigmoid",
-    "--lambda_gan", "0.5",
-    "--lambda_idt", "1",
-    "--lambda_cycle", "1",
-    "--lambda_cycle_lpips", "10.0",
-    "--lambda_idt_lpips", "1.0",
-    
-    # Otimização e memória
-    "--gradient_accumulation_steps", "1",
-    "--enable_xformers_memory_efficient_attention",
-    "--adam_beta1", "0.9",
-    "--adam_beta2", "0.999",
-    "--adam_weight_decay", "1e-2",
-    
-    # Validação e logging
-    "--validation_steps", "500",
-    "--validation_num_images", "-1",
-    "--viz_freq", "20",
-    "--checkpointing_steps", "500",
-    "--report_to", "wandb"
+            # Argumentos obrigatórios
+            "--dataset_folder", pasta_dados,
+            "--train_img_prep", "resize_286_randomcrop_256x256_hflip",
+            "--val_img_prep", "no_resize",
+            "--output_dir", pasta_saida,
+            "--tracker_project_name", config.get('wandb_project_name', 'diaparanoite'),
+            
+            # Argumentos do modelo
+            "--pretrained_model_name_or_path", "stabilityai/sd-turbo",
+            "--lora_rank_unet", "128",  # Valor padrão do training_utils.py
+            "--lora_rank_vae", "4",     # Valor padrão do training_utils.py
+            
+            # Argumentos de treinamento
+            "--max_train_steps", passos_treinamento.get(),
+            "--learning_rate", taxa_aprendizagem.get(),
+            "--train_batch_size", tamanho_lote.get(),
+            
+            # Argumentos do GAN
+            "--lambda_gan", "0.5",
+            "--lambda_cycle", "1",
+            "--lambda_idt", "1",
+            "--lambda_cycle_lpips", "10.0",
+            "--lambda_idt_lpips", "1.0",
+            
+            # Otimização e memória
+            "--gradient_accumulation_steps", "1",
+            "--enable_xformers_memory_efficient_attention",
+            "--gradient_checkpointing",
+            
+            # Validação e logging
+            "--validation_steps", "500",
+            "--report_to", "wandb"
         ]
 
-        # Adicionar API key do W&B como variável de ambiente
+        # Configurar variável de ambiente NCCL_P2P_DISABLE
+        os.environ["NCCL_P2P_DISABLE"] = "1"
         os.environ["WANDB_API_KEY"] = config.get('wandb_api_key', '')
-        
+
         # Registrar início do treino
         info_treinamento = {
             'data_inicio': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
@@ -559,7 +565,18 @@ def converter_imagem():
         botao_abrir_resultado.config(state=tk.NORMAL)
     except subprocess.CalledProcessError as e:
         messagebox.showerror("Erro", f"Ocorreu um erro ao converter a imagem: {e}")
-
+def reinstalar_diffusers():
+    """Reinstala a versão específica do diffusers"""
+    try:
+        # Primeiro desinstala a versão atual
+        subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "diffusers", "-y"])
+        messagebox.showinfo("Progresso", "Diffusers desinstalado. Instalando versão 0.25.1...")
+        
+        # Instala a versão específica
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "diffusers==0.25.1"])
+        messagebox.showinfo("Sucesso", "Diffusers 0.25.1 instalado com sucesso!")
+    except subprocess.CalledProcessError as e:
+        messagebox.showerror("Erro", f"Falha ao reinstalar diffusers: {e}")
 def atualizar_historico():
     lista_historico.delete(0, tk.END)
     for item in historico[-10:]:  # Mostra apenas os últimos 10 itens
@@ -662,7 +679,9 @@ botoes_principais = [
     ("Mostrar Ficheiros Gerados", mostrar_arquivos_gerados),
     ("Verificar Pastas", verificar_diretorios),
     ("Dividir Imagens (Treino/Teste)", gerar_conjuntos_teste),
-    ("Ver Histórico", mostrar_historico)
+    ("Ver Histórico", mostrar_historico),
+    ("Reinstalar Diffusers 0.25.1", reinstalar_diffusers),
+    ("Reinstalar Huggingface 0.25.2", reinstalar_huggingface)  # Novo botão
 ]
 
 for i, (texto, comando) in enumerate(botoes_principais):

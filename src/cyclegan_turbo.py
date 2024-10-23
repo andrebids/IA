@@ -5,7 +5,8 @@ import torch
 import torch.nn as nn
 from transformers import AutoTokenizer, CLIPTextModel
 from diffusers import AutoencoderKL, UNet2DConditionModel
-from peft import LoraConfig, get_peft_model
+from peft import LoraConfig
+from peft.utils import get_peft_model_state_dict
 p = "src/"
 sys.path.append(p)
 from model import make_1step_sched, my_vae_encoder_fwd, my_vae_decoder_fwd, download_url
@@ -75,19 +76,34 @@ def initialize_unet(rank, return_lora_module_names=False):
         return unet
 
 
-def initialize_vae(lora_rank, return_lora_module_names=False):
+def initialize_vae(rank=4, return_lora_module_names=False):
     vae = AutoencoderKL.from_pretrained("stabilityai/sd-turbo", subfolder="vae")
-    vae_lora_config = LoraConfig(
-        r=lora_rank,
-        lora_alpha=lora_rank,
-        init_lora_weights="gaussian",
-        target_modules=["to_q", "to_k", "to_v", "to_out.0"],
-    )
-    vae = get_peft_model(vae, vae_lora_config)
-    
+    vae.requires_grad_(False)
+    vae.encoder.forward = my_vae_encoder_fwd.__get__(vae.encoder, vae.encoder.__class__)
+    vae.decoder.forward = my_vae_decoder_fwd.__get__(vae.decoder, vae.decoder.__class__)
+    vae.requires_grad_(True)
+    vae.train()
+    # add the skip connection convs
+    vae.decoder.skip_conv_1 = torch.nn.Conv2d(512, 512, kernel_size=(1, 1), stride=(1, 1), bias=False).cuda().requires_grad_(True)
+    vae.decoder.skip_conv_2 = torch.nn.Conv2d(256, 512, kernel_size=(1, 1), stride=(1, 1), bias=False).cuda().requires_grad_(True)
+    vae.decoder.skip_conv_3 = torch.nn.Conv2d(128, 512, kernel_size=(1, 1), stride=(1, 1), bias=False).cuda().requires_grad_(True)
+    vae.decoder.skip_conv_4 = torch.nn.Conv2d(128, 256, kernel_size=(1, 1), stride=(1, 1), bias=False).cuda().requires_grad_(True)
+    torch.nn.init.constant_(vae.decoder.skip_conv_1.weight, 1e-5)
+    torch.nn.init.constant_(vae.decoder.skip_conv_2.weight, 1e-5)
+    torch.nn.init.constant_(vae.decoder.skip_conv_3.weight, 1e-5)
+    torch.nn.init.constant_(vae.decoder.skip_conv_4.weight, 1e-5)
+    vae.decoder.ignore_skip = False
+    vae.decoder.gamma = 1
+    l_vae_target_modules = ["conv1","conv2","conv_in", "conv_shortcut",
+        "conv", "conv_out", "skip_conv_1", "skip_conv_2", "skip_conv_3", 
+        "skip_conv_4", "to_k", "to_q", "to_v", "to_out.0",
+    ]
+    vae_lora_config = LoraConfig(r=rank, init_lora_weights="gaussian", target_modules=l_vae_target_modules)
+    vae.add_adapter(vae_lora_config, adapter_name="vae_skip")
     if return_lora_module_names:
-        return vae, vae_lora_config.target_modules
-    return vae
+        return vae, l_vae_target_modules
+    else:
+        return vae
 
 
 class CycleGAN_Turbo(torch.nn.Module):
@@ -236,4 +252,3 @@ class CycleGAN_Turbo(torch.nn.Module):
                     padding="max_length", truncation=True, return_tensors="pt").input_ids.to(x_t.device)
             caption_enc = self.text_encoder(caption_tokens)[0].detach().clone()
         return self.forward_with_networks(x_t, direction, self.vae_enc, self.unet, self.vae_dec, self.sched, self.timesteps, caption_enc)
-
