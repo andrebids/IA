@@ -20,7 +20,67 @@ from model import make_1step_sched
 from cyclegan_turbo import CycleGAN_Turbo, VAE_encode, VAE_decode, initialize_unet, initialize_vae
 from my_utils.training_utils import UnpairedDataset, build_transform, parse_args_unpaired_training
 from my_utils.dino_struct import DinoStructureLoss
+from peft import LoraConfig, get_peft_model
+import argparse
 
+def parse_args():
+    parser = argparse.ArgumentParser()
+    
+    # Argumentos de memória e otimização
+    parser.add_argument("--enable_xformers_memory_efficient_attention", action="store_true")
+    parser.add_argument("--gradient_accumulation_steps", type=int, default=1)
+    parser.add_argument("--mixed_precision", type=str, default="fp16")
+    
+    # Argumentos de treino
+    parser.add_argument("--num_train_steps", type=int, default=1000)
+    parser.add_argument("--learning_rate", type=float, default=0.0001)
+    parser.add_argument("--train_batch_size", type=int, default=1)
+    parser.add_argument("--seed", type=int, default=42)
+    
+    # Argumentos do GAN
+    parser.add_argument("--gan_disc_type", default="vagan_clip")
+    parser.add_argument("--gan_loss_type", default="multilevel_sigmoid")
+    parser.add_argument("--lambda_gan", default=0.5, type=float)
+    parser.add_argument("--lambda_idt", default=1, type=float)
+    parser.add_argument("--lambda_cycle", default=1, type=float)
+    parser.add_argument("--lambda_cycle_lpips", default=10.0, type=float)
+    parser.add_argument("--lambda_idt_lpips", default=1.0, type=float)
+    
+    # Argumentos de validação
+    parser.add_argument("--validation_steps", type=int, default=500)
+    parser.add_argument("--validation_num_images", type=int, default=-1)
+    parser.add_argument("--viz_freq", type=int, default=20)
+    
+    # Argumentos do otimizador
+    parser.add_argument("--lr_scheduler", type=str, default="constant")
+    parser.add_argument("--lr_warmup_steps", type=int, default=500)
+    parser.add_argument("--lr_num_cycles", type=int, default=1)
+    parser.add_argument("--lr_power", type=float, default=1.0)
+    
+    # Argumentos do modelo
+    parser.add_argument("--model_name", type=str, default="stabilityai/sd-turbo")
+    parser.add_argument("--revision", type=str, default="main")
+    parser.add_argument("--tokenizer_name", type=str, default="stabilityai/sd-turbo")
+    parser.add_argument("--scheduler_name", type=str, default="stabilityai/sd-turbo")
+    
+    # Argumentos do LoRA
+    parser.add_argument("--lora_rank_unet", type=int, default=128)
+    parser.add_argument("--lora_rank_vae", type=int, default=4)
+    parser.add_argument("--lora_alpha_unet", type=float, default=4.0)
+    parser.add_argument("--lora_alpha_vae", type=float, default=4.0)
+    parser.add_argument("--lora_dropout_unet", type=float, default=0.0)
+    parser.add_argument("--lora_dropout_vae", type=float, default=0.0)
+    
+    # Argumentos de diretório
+    parser.add_argument("--output_dir", type=str, default="outputs")
+    parser.add_argument("--data_dir", type=str, default="data/diaparanoite")
+    
+    # Argumentos do W&B
+    parser.add_argument("--wandb_api_key", type=str)
+    parser.add_argument("--wandb_project_name", type=str)
+    parser.add_argument("--report_to", type=str, default="wandb")
+    
+    return parser.parse_args()
 
 def main(args):
     accelerator = Accelerator(gradient_accumulation_steps=args.gradient_accumulation_steps, log_with=args.report_to)
@@ -51,7 +111,14 @@ def main(args):
     crit_cycle, crit_idt = torch.nn.L1Loss(), torch.nn.L1Loss()
 
     if args.enable_xformers_memory_efficient_attention:
-        unet.enable_xformers_memory_efficient_attention()
+        try:
+            unet.enable_xformers_memory_efficient_attention()
+            print("xformers habilitado com sucesso.")
+        except Exception as e:
+            print(f"Não foi possível habilitar xformers: {e}")
+            print("Continuando sem xformers...")
+    else:
+        print("xformers não habilitado.")
 
     if args.gradient_checkpointing:
         unet.enable_gradient_checkpointing()
@@ -302,8 +369,8 @@ def main(args):
                         sd["sd_other"] = get_peft_model_state_dict(eval_unet, adapter_name="default_others")
                         sd["rank_vae"] = args.lora_rank_vae
                         sd["vae_lora_target_modules"] = vae_lora_target_modules
-                        sd["sd_vae_enc"] = eval_vae_enc.state_dict()
-                        sd["sd_vae_dec"] = eval_vae_dec.state_dict()
+                        sd["sd_vae_enc"] = vae_a2b.state_dict()
+                        sd["sd_vae_dec"] = vae_b2a.state_dict()
                         torch.save(sd, outf)
                         gc.collect()
                         torch.cuda.empty_cache()
@@ -386,5 +453,11 @@ def main(args):
 
 
 if __name__ == "__main__":
-    args = parse_args_unpaired_training()
+    args = parse_args()
     main(args)
+
+
+
+
+
+

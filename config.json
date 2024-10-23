@@ -1,1 +1,7 @@
-{"pasta_trainA": "C:/Users/AndreGarcia/Desktop/NtoD/img2img-turbo/data/trainA", "pasta_trainB": "C:/Users/AndreGarcia/Desktop/NtoD/img2img-turbo/data/trainB", "pasta_testA": "C:/Users/AndreGarcia/Desktop/NtoD/img2img-turbo/data/testA", "pasta_testB": "C:/Users/AndreGarcia/Desktop/NtoD/img2img-turbo/data/testB", "wandb_api_key": "3994c9f058cb2e8f1fa8d2897ea63a94d7e03730", "wandb_project_name": "diaparanoite"}
+{
+    "wandb_api_key": "3994c9f058cb2e8f1fa8d2897ea63a94d7e03730",
+    "wandb_project_name": "diaparanoite",
+    "passos_treinamento": "1000",
+    "taxa_aprendizagem": "0.0001",
+    "tamanho_lote": "1"
+}

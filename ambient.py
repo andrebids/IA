@@ -11,23 +11,399 @@ import threading
 import random
 import shutil
 import numpy as np
+import tkinter.scrolledtext as scrolledtext
+import requests
 
-# Defina o caminho base do projeto
+# Definir caminhos
 pasta_projeto = "C:\\Users\\AndreGarcia\\Desktop\\NtoD\\img2img-turbo"
-
-# Defina o caminho para a pasta de checkpoints
+pasta_dados = os.path.join(pasta_projeto, "data", "diaparanoite")
 pasta_checkpoints = os.path.join(pasta_projeto, "checkpoints")
-
 pasta_saida = os.path.join(pasta_projeto, "outputs")
 arquivo_config = os.path.join(pasta_projeto, "config.json")
 
+# Subpastas para dados
+pasta_treino_dia = os.path.join(pasta_dados, "train_A")
+pasta_treino_noite = os.path.join(pasta_dados, "train_B")
+pasta_teste_dia = os.path.join(pasta_dados, "test_A")
+pasta_teste_noite = os.path.join(pasta_dados, "test_B")
+
+def criar_estrutura_pastas():
+    """Cria a estrutura de pastas necessária para o projeto"""
+    for pasta in [
+        pasta_dados, pasta_checkpoints, pasta_saida,
+        pasta_treino_dia, pasta_treino_noite,
+        pasta_teste_dia, pasta_teste_noite
+    ]:
+        os.makedirs(pasta, exist_ok=True)
+    
+    # Criar arquivo de configuração se não existir
+    if not os.path.exists(arquivo_config):
+        config_inicial = {}  # Dicionário vazio inicial
+        salvar_configuracoes(config_inicial)
+    
+    # Criar arquivos de prompt se não existirem
+    prompt_dia_path = os.path.join(pasta_dados, "fixed_prompt_a.txt")
+    prompt_noite_path = os.path.join(pasta_dados, "fixed_prompt_b.txt")
+    
+    if not os.path.exists(prompt_dia_path):
+        with open(prompt_dia_path, "w") as f:
+            f.write("uma fotografia durante o dia com luz natural")
+    
+    if not os.path.exists(prompt_noite_path):
+        with open(prompt_noite_path, "w") as f:
+            f.write("uma fotografia durante a noite com iluminação artificial")
+
+def verificar_diretorios():
+    """Verifica se todos os diretórios necessários existem e estão corretos"""
+    criar_estrutura_pastas()
+    
+    # Verificar se existem imagens nas pastas
+    imagens_treino_dia = len([f for f in os.listdir(pasta_treino_dia) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+    imagens_treino_noite = len([f for f in os.listdir(pasta_treino_noite) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+    imagens_teste_dia = len([f for f in os.listdir(pasta_teste_dia) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+    imagens_teste_noite = len([f for f in os.listdir(pasta_teste_noite) if f.lower().endswith(('.png', '.jpg', '.jpeg'))])
+    
+    mensagem = f"""
+    Estrutura de pastas:
+    
+    Treino:
+    - Dia (train_A): {imagens_treino_dia} imagens
+    - Noite (train_B): {imagens_treino_noite} imagens
+    
+    Teste:
+    - Dia (test_A): {imagens_teste_dia} imagens
+    - Noite (test_B): {imagens_teste_noite} imagens
+    
+    Pastas do projeto:
+    - Dados: {pasta_dados}
+    - Checkpoints: {pasta_checkpoints}
+    - Saída: {pasta_saida}
+    """
+    
+    messagebox.showinfo("Verificação de Diretórios", mensagem)
+
+# Variáveis globais
+historico_treinamento = []
+caminho_historico = os.path.join(pasta_projeto, "historico.json")
+
+# Criar a janela principal
 janela = tk.Tk()
 janela.title("Conversor Dia para Noite")
 janela.geometry("800x600")
 janela.configure(bg="#f0f0f0")
 
+# Criar notebook
 notebook = ttk.Notebook(janela)
 notebook.pack(fill=tk.BOTH, expand=True)
+
+# Definir variáveis
+wandb_api_key = tk.StringVar()
+wandb_project_name = tk.StringVar()
+passos_treinamento = tk.StringVar(value="1000")
+taxa_aprendizagem = tk.StringVar(value="0.0001")
+tamanho_lote = tk.StringVar(value="1")
+
+# Funções de configuração
+def carregar_configuracoes():
+    """Carrega as configurações do arquivo JSON"""
+    try:
+        if os.path.exists(arquivo_config):
+            with open(arquivo_config, 'r') as f:
+                return json.load(f)
+        return {}
+    except Exception as e:
+        print(f"Erro ao carregar configurações: {str(e)}")
+        return {}
+
+def salvar_configuracoes(config):
+    """Salva as configurações em um arquivo JSON"""
+    try:
+        with open(arquivo_config, 'w') as f:
+            json.dump(config, f, indent=4)
+    except Exception as e:
+        print(f"Erro ao salvar configuraçes: {str(e)}")
+
+def salvar_configuracoes_atuais():
+    """Salva todas as configurações atuais"""
+    config = {
+        'wandb_api_key': wandb_api_key.get(),
+        'wandb_project_name': wandb_project_name.get(),
+        'passos_treinamento': passos_treinamento.get(),
+        'taxa_aprendizagem': taxa_aprendizagem.get(),
+        'tamanho_lote': tamanho_lote.get()
+    }
+    salvar_configuracoes(config)
+    messagebox.showinfo("Sucesso", "Configurações salvas com sucesso!")
+
+def carregar_configuracoes_iniciais():
+    """Carrega as configurações iniciais do arquivo"""
+    try:
+        config = carregar_configuracoes()
+        
+        # Carregar configurações do W&B
+        if 'wandb_api_key' in config:
+            wandb_api_key.set(config['wandb_api_key'])
+        if 'wandb_project_name' in config:
+            wandb_project_name.set(config['wandb_project_name'])
+        
+        # Carregar outras configurações
+        if 'passos_treinamento' in config:
+            passos_treinamento.set(config['passos_treinamento'])
+        if 'taxa_aprendizagem' in config:
+            taxa_aprendizagem.set(config['taxa_aprendizagem'])
+        if 'tamanho_lote' in config:
+            tamanho_lote.set(config['tamanho_lote'])
+            
+        print("Configurações carregadas:", config)  # Debug para verificar o que está sendo carregado
+    except Exception as e:
+        print(f"Erro ao carregar configurações iniciais: {str(e)}")
+        messagebox.showerror("Erro", f"Erro ao carregar configurações: {str(e)}")
+
+def atualizar_configuracao(chave, valor):
+    """Atualiza uma configuração específica"""
+    config = carregar_configuracoes()
+    config[chave] = valor
+    salvar_configuracoes(config)
+
+def callback(*args):
+    """Callback para quando os valores das variáveis são alterados"""
+    config = {
+        'wandb_api_key': wandb_api_key.get(),
+        'wandb_project_name': wandb_project_name.get(),
+        'passos_treinamento': passos_treinamento.get(),
+        'taxa_aprendizagem': taxa_aprendizagem.get(),
+        'tamanho_lote': tamanho_lote.get()
+    }
+    salvar_configuracoes(config)
+
+def adicionar_observadores():
+    """Adiciona observadores para salvar configurações automaticamente"""
+    wandb_api_key.trace_add("write", callback)
+    wandb_project_name.trace_add("write", callback)
+    passos_treinamento.trace_add("write", callback)
+    taxa_aprendizagem.trace_add("write", callback)
+    tamanho_lote.trace_add("write", callback)
+
+# Funções de histórico
+def carregar_historico():
+    global historico_treinamento
+    try:
+        if os.path.exists(caminho_historico):
+            with open(caminho_historico, 'r') as f:
+                historico_treinamento = json.load(f)
+    except Exception as e:
+        print(f"Erro ao carregar histórico: {e}")
+        historico_treinamento = []
+
+def salvar_historico():
+    try:
+        with open(caminho_historico, 'w') as f:
+            json.dump(historico_treinamento, f, indent=4)
+    except Exception as e:
+        print(f"Erro ao salvar histórico: {e}")
+
+def adicionar_ao_historico(info_treinamento):
+    historico_treinamento.append(info_treinamento)
+    salvar_historico()
+
+# Definir todas as funções primeiro
+def atualizar_diffusers():
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", "diffusers"])
+        messagebox.showinfo("Sucesso", "A biblioteca diffusers foi atualizada.")
+    except subprocess.CalledProcessError as e:
+        messagebox.showerror("Erro", f"Falha ao atualizar diffusers: {e}")
+
+def atualizar_dependencias():
+    dependencias = ["diffusers", "transformers", "accelerate", "peft"]
+    for dep in dependencias:
+        try:
+            subprocess.check_call([sys.executable, "-m", "pip", "install", "--upgrade", dep])
+            print(f"Atualizado: {dep}")
+        except subprocess.CalledProcessError as e:
+            print(f"Erro ao atualizar {dep}: {e}")
+    messagebox.showinfo("Atualização Concluída", "As dependências foram atualizadas.")
+
+def instalar_triton():
+    triton_url = "https://huggingface.co/madbuda/triton-windows-builds/resolve/main/triton-3.0.0-cp310-cp310-win_amd64.whl"
+    try:
+        temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
+        os.makedirs(temp_dir, exist_ok=True)
+        triton_file = os.path.join(temp_dir, "triton-3.0.0-cp310-cp310-win_amd64.whl")
+        print("Baixando Triton...")
+        response = requests.get(triton_url)
+        with open(triton_file, 'wb') as f:
+            f.write(response.content)
+        print("Instalando Triton...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", triton_file])
+        os.remove(triton_file)
+        messagebox.showinfo("Sucesso", "Triton instalado com sucesso.")
+    except Exception as e:
+        messagebox.showerror("Erro", f"Falha ao instalar Triton: {e}")
+    finally:
+        try:
+            os.rmdir(temp_dir)
+        except:
+            pass
+
+def executar_treinamento():
+    try:
+        # Carregar configurações salvas
+        config = carregar_configuracoes()
+        
+        comando = [
+            sys.executable,
+            os.path.join(pasta_projeto, "src", "train_cyclegan_turbo.py"),
+            "--enable_xformers_memory_efficient_attention",
+            "--gradient_accumulation_steps", "1",
+            "--mixed_precision", "fp16",
+            "--num_train_steps", passos_treinamento.get(),
+            "--learning_rate", taxa_aprendizagem.get(),
+            "--train_batch_size", tamanho_lote.get(),
+            "--seed", "42",
+            
+            # Argumentos do GAN
+            "--gan_disc_type", "vagan_clip",
+            "--gan_loss_type", "multilevel_sigmoid",
+            "--lambda_gan", "0.5",
+            "--lambda_idt", "1",
+            "--lambda_cycle", "1",
+            "--lambda_cycle_lpips", "10.0",
+            "--lambda_idt_lpips", "1.0",
+            
+            # Argumentos de validação
+            "--validation_steps", "500",
+            "--validation_num_images", "-1",
+            "--viz_freq", "20",
+            
+            # Argumentos do otimizador
+            "--lr_scheduler", "constant",
+            "--lr_warmup_steps", "500",
+            
+            # Argumentos de diretório
+            "--output_dir", pasta_saida,
+            "--data_dir", pasta_dados,
+            
+            # Argumentos do W&B
+            "--wandb_api_key", config.get('wandb_api_key', ''),
+            "--wandb_project_name", config.get('wandb_project_name', 'diaparanoite'),
+            "--report_to", "wandb"
+        ]
+        
+        # Registrar início do treino
+        info_treinamento = {
+            'data_inicio': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'passos': passos_treinamento.get(),
+            'taxa_aprendizagem': taxa_aprendizagem.get(),
+            'tamanho_lote': tamanho_lote.get(),
+            'projeto_wandb': config.get('wandb_project_name', 'diaparanoite')
+        }
+        
+        # Criar janela de progresso
+        janela_progresso = tk.Toplevel(janela)
+        janela_progresso.title("Progresso do Treino")
+        janela_progresso.geometry("600x400")
+        
+        texto_progresso = scrolledtext.ScrolledText(janela_progresso, wrap=tk.WORD, width=70, height=20)
+        texto_progresso.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+        
+        processo = subprocess.Popen(
+            comando, 
+            stdout=subprocess.PIPE, 
+            stderr=subprocess.STDOUT, 
+            text=True, 
+            bufsize=1, 
+            universal_newlines=True
+        )
+        
+        def atualizar_progresso():
+            output = processo.stdout.readline()
+            if output:
+                texto_progresso.insert(tk.END, output)
+                texto_progresso.see(tk.END)
+                janela.after(10, atualizar_progresso)
+            elif processo.poll() is not None:
+                rc = processo.poll()
+                if rc == 0:
+                    info_treinamento['status'] = 'concluído'
+                    messagebox.showinfo("Sucesso", "Treino concluído!")
+                else:
+                    info_treinamento['status'] = 'falhou'
+                    messagebox.showerror("Erro", f"Falha no treino: {rc}")
+                info_treinamento['data_fim'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                adicionar_ao_historico(info_treinamento)
+                janela_progresso.destroy()
+        
+        janela.after(10, atualizar_progresso)
+        
+    except Exception as e:
+        info_treinamento['status'] = 'erro'
+        info_treinamento['erro'] = str(e)
+        info_treinamento['data_fim'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        adicionar_ao_historico(info_treinamento)
+        messagebox.showerror("Erro", f"Erro no treino: {e}")
+
+def testar_conexao_wandb():
+    api_key = wandb_api_key.get()
+    if not api_key:
+        messagebox.showerror("Erro", "Insira a API Key do W&B")
+        return
+    try:
+        wandb.login(key=api_key)
+        messagebox.showinfo("Sucesso", "Conexão W&B OK!")
+    except Exception as e:
+        messagebox.showerror("Erro", f"Falha W&B: {e}")
+
+def mostrar_arquivos_gerados():
+    try:
+        os.startfile(pasta_checkpoints)
+    except Exception as e:
+        messagebox.showerror("Erro", f"Erro ao abrir pasta: {e}")
+
+def gerar_conjuntos_teste():
+    try:
+        os.makedirs(os.path.join(pasta_dados, "test"), exist_ok=True)
+        os.makedirs(os.path.join(pasta_dados, "train"), exist_ok=True)
+        imagens = [f for f in os.listdir(pasta_dados) if f.endswith(('.png', '.jpg', '.jpeg'))]
+        if not imagens:
+            messagebox.showwarning("Aviso", "Sem imagens na pasta.")
+            return
+        num_teste = max(1, int(len(imagens) * 0.2))
+        imagens_teste = random.sample(imagens, num_teste)
+        for imagem in imagens:
+            origem = os.path.join(pasta_dados, imagem)
+            if imagem in imagens_teste:
+                destino = os.path.join(pasta_dados, "test", imagem)
+            else:
+                destino = os.path.join(pasta_dados, "train", imagem)
+            shutil.move(origem, destino)
+        messagebox.showinfo("Sucesso", f"Dados gerados:\nTeste: {num_teste}\nTreino: {len(imagens) - num_teste}")
+    except Exception as e:
+        messagebox.showerror("Erro", f"Erro: {e}")
+
+def mostrar_historico():
+    janela_historico = tk.Toplevel(janela)
+    janela_historico.title("Histórico de Treinamentos")
+    janela_historico.geometry("800x400")
+    
+    texto_historico = scrolledtext.ScrolledText(janela_historico, wrap=tk.WORD, width=90, height=20)
+    texto_historico.pack(padx=10, pady=10, fill=tk.BOTH, expand=True)
+    
+    for i, treino in enumerate(historico_treinamento, 1):
+        texto = f"\n=== Treinamento {i} ===\n"
+        texto += f"Data Início: {treino.get('data_inicio', 'N/A')}\n"
+        texto += f"Data Fim: {treino.get('data_fim', 'N/A')}\n"
+        texto += f"Status: {treino.get('status', 'N/A')}\n"
+        texto += f"Passos: {treino.get('passos', 'N/A')}\n"
+        texto += f"Taxa de Aprendizagem: {treino.get('taxa_aprendizagem', 'N/A')}\n"
+        texto += f"Tamanho do Lote: {treino.get('tamanho_lote', 'N/A')}\n"
+        texto += f"Projeto W&B: {treino.get('projeto_wandb', 'N/A')}\n"
+        if 'erro' in treino:
+            texto += f"Erro: {treino['erro']}\n"
+        texto += "="*30 + "\n"
+        texto_historico.insert(tk.END, texto)
+    
+    texto_historico.configure(state='disabled')
 
 # Aba de Conversão
 aba_conversao = ttk.Frame(notebook)
@@ -205,246 +581,84 @@ label_instrucoes.pack(pady=(5, 0))
 aba_treinamento = ttk.Frame(notebook)
 notebook.add(aba_treinamento, text="Treinamento")
 
+# Frame principal do treinamento com duas colunas
 frame_treinamento = ttk.Frame(aba_treinamento, padding="10")
 frame_treinamento.pack(fill=tk.BOTH, expand=True)
 
-# Variáveis para as pastas de treinamento e API key
-pasta_trainA = tk.StringVar()
-pasta_trainB = tk.StringVar()
-pasta_testA = tk.StringVar()
-pasta_testB = tk.StringVar()
-wandb_api_key = tk.StringVar()
-wandb_project_name = tk.StringVar()
+# Frame para configurações (coluna esquerda)
+frame_config = ttk.LabelFrame(frame_treinamento, text="Configurações", padding="10")
+frame_config.grid(row=0, column=0, padx=10, pady=5, sticky="nsew")
 
-def carregar_configuracoes():
-    if os.path.exists(arquivo_config):
-        with open(arquivo_config, 'r') as f:
-            config = json.load(f)
-            pasta_trainA.set(config.get('pasta_trainA', ''))
-            pasta_trainB.set(config.get('pasta_trainB', ''))
-            pasta_testA.set(config.get('pasta_testA', ''))
-            pasta_testB.set(config.get('pasta_testB', ''))
-            wandb_api_key.set(config.get('wandb_api_key', ''))
-            wandb_project_name.set(config.get('wandb_project_name', ''))
+# Frame para ações (coluna direita)
+frame_acoes = ttk.LabelFrame(frame_treinamento, text="Ações", padding="10")
+frame_acoes.grid(row=0, column=1, padx=10, pady=5, sticky="nsew")
 
-def salvar_configuracoes():
-    config = {
-        'pasta_trainA': pasta_trainA.get(),
-        'pasta_trainB': pasta_trainB.get(),
-        'pasta_testA': pasta_testA.get(),
-        'pasta_testB': pasta_testB.get(),
-        'wandb_api_key': wandb_api_key.get(),
-        'wandb_project_name': wandb_project_name.get()
-    }
-    with open(arquivo_config, 'w') as f:
-        json.dump(config, f)
+# Configurar o grid para expandir corretamente
+frame_treinamento.columnconfigure(0, weight=1)
+frame_treinamento.columnconfigure(1, weight=1)
 
-def selecionar_pasta(variavel):
-    pasta = filedialog.askdirectory()
-    if pasta:
-        variavel.set(pasta)
-        salvar_configuracoes()
+# Adicionar configurações no frame_config
+ttk.Label(frame_config, text="Chave API do W&B:").grid(row=0, column=0, sticky="w", pady=5)
+ttk.Entry(frame_config, textvariable=wandb_api_key, width=40).grid(row=0, column=1, sticky="ew", pady=5)
 
-# Campos para seleção de pastas com explicações
-ttk.Label(frame_treinamento, text="Pasta trainA (Imagens de dia para treinamento):", wraplength=200).grid(row=0, column=0, sticky="w", pady=5)
-ttk.Entry(frame_treinamento, textvariable=pasta_trainA, width=50).grid(row=0, column=1, pady=5)
-ttk.Button(frame_treinamento, text="Selecionar", command=lambda: selecionar_pasta(pasta_trainA)).grid(row=0, column=2, pady=5)
+ttk.Label(frame_config, text="Nome do Projeto W&B:").grid(row=1, column=0, sticky="w", pady=5)
+ttk.Entry(frame_config, textvariable=wandb_project_name, width=40).grid(row=1, column=1, sticky="ew", pady=5)
 
-ttk.Label(frame_treinamento, text="Pasta trainB (Imagens de noite para treinamento):", wraplength=200).grid(row=1, column=0, sticky="w", pady=5)
-ttk.Entry(frame_treinamento, textvariable=pasta_trainB, width=50).grid(row=1, column=1, pady=5)
-ttk.Button(frame_treinamento, text="Selecionar", command=lambda: selecionar_pasta(pasta_trainB)).grid(row=1, column=2, pady=5)
+# Frame para parâmetros de treino
+frame_params = ttk.LabelFrame(frame_config, text="Parâmetros de Treino", padding="5")
+frame_params.grid(row=2, column=0, columnspan=2, sticky="ew", pady=10)
 
-ttk.Label(frame_treinamento, text="Pasta testA (Imagens de dia para teste):", wraplength=200).grid(row=2, column=0, sticky="w", pady=5)
-ttk.Entry(frame_treinamento, textvariable=pasta_testA, width=50).grid(row=2, column=1, pady=5)
-ttk.Button(frame_treinamento, text="Selecionar", command=lambda: selecionar_pasta(pasta_testA)).grid(row=2, column=2, pady=5)
+ttk.Label(frame_params, text="Número de passos:").grid(row=0, column=0, sticky="w", pady=5)
+ttk.Entry(frame_params, textvariable=passos_treinamento, width=10).grid(row=0, column=1, sticky="w", pady=5)
 
-ttk.Label(frame_treinamento, text="Pasta testB (Imagens de noite para teste):", wraplength=200).grid(row=3, column=0, sticky="w", pady=5)
-ttk.Entry(frame_treinamento, textvariable=pasta_testB, width=50).grid(row=3, column=1, pady=5)
-ttk.Button(frame_treinamento, text="Selecionar", command=lambda: selecionar_pasta(pasta_testB)).grid(row=3, column=2, pady=5)
+ttk.Label(frame_params, text="Taxa de aprendizagem:").grid(row=1, column=0, sticky="w", pady=5)
+ttk.Entry(frame_params, textvariable=taxa_aprendizagem, width=10).grid(row=1, column=1, sticky="w", pady=5)
 
-# Adicionar um botão de ajuda para explicar melhor a estrutura das pastas
-def mostrar_ajuda_pastas():
-    mensagem = """
-    Estrutura das pastas para treinamento do CycleGAN:
+ttk.Label(frame_params, text="Tamanho do lote:").grid(row=2, column=0, sticky="w", pady=5)
+ttk.Entry(frame_params, textvariable=tamanho_lote, width=10).grid(row=2, column=1, sticky="w", pady=5)
 
-    trainA: Coloque aqui as imagens de dia que você quer usar para treinar o modelo.
-    Exemplo: Fotos de paisagens, cidades ou objetos durante o dia.
+# Botões principais no frame_acoes
+botoes_principais = [
+    ("Iniciar Treino", executar_treinamento),
+    ("Testar Ligação W&B", testar_conexao_wandb),
+    ("Mostrar Ficheiros Gerados", mostrar_arquivos_gerados),
+    ("Verificar Pastas", verificar_diretorios),
+    ("Dividir Imagens (Treino/Teste)", gerar_conjuntos_teste),
+    ("Ver Histórico", mostrar_historico)
+]
 
-    trainB: Coloque aqui as imagens de noite correspondentes ao tipo de cenas em trainA.
-    Exemplo: Fotos de paisagens, cidades ou objetos durante a noite.
+for i, (texto, comando) in enumerate(botoes_principais):
+    ttk.Button(frame_acoes, text=texto, command=comando).grid(row=i, column=0, pady=5, sticky="ew")
 
-    testA: Coloque aqui algumas imagens de dia (diferentes das de trainA) para testar o modelo.
-    Estas imagens serão usadas para verificar o desempenho do modelo durante o treinamento.
+# Configurar expansão dos frames
+for frame in [frame_config, frame_acoes]:
+    frame.columnconfigure(1, weight=1)
 
-    testB: Coloque aqui algumas imagens de noite (diferentes das de trainB) para testar o modelo.
-    Estas imagens também serão usadas para verificar o desempenho do modelo.
-
-    Observações:
-    - As imagens em trainA e trainB não precisam ser pares exatos (mesma cena de dia e noite).
-    - Use imagens de alta qualidade e variadas para melhor treinamento.
-    - Recomenda-se ter pelo menos algumas centenas de imagens em cada pasta de treinamento.
-    """
-    messagebox.showinfo("Ajuda - Estrutura das Pastas", mensagem)
-
-ttk.Button(frame_treinamento, text="Ajuda sobre as Pastas", command=mostrar_ajuda_pastas).grid(row=4, column=1, pady=10)
-
-# Campo para API key do wandb
-ttk.Label(frame_treinamento, text="Wandb API Key:").grid(row=5, column=0, sticky="w", pady=5)
-ttk.Entry(frame_treinamento, textvariable=wandb_api_key, width=50, show="*").grid(row=5, column=1, pady=5)
-
-# Campo para nome do projeto wandb
-ttk.Label(frame_treinamento, text="Wandb Project Name:").grid(row=6, column=0, sticky="w", pady=5)
-ttk.Entry(frame_treinamento, textvariable=wandb_project_name, width=50).grid(row=6, column=1, pady=5)
-
-def verificar_diretorios():
-    diretorios = [pasta_trainA.get(), pasta_trainB.get(), pasta_testA.get(), pasta_testB.get()]
-    for diretorio in diretorios:
-        if not os.path.exists(diretorio) or not os.listdir(diretorio):
-            return False
-    return True
-
-def gerar_conjuntos_teste():
-    if not pasta_trainA.get() or not pasta_trainB.get():
-        messagebox.showerror("Erro", "Por favor, selecione as pastas trainA e trainB primeiro.")
-        return
-
-    porcentagem_teste = 0.2  # 20% das imagens serão usadas para teste
-
-    for origem, destino in [(pasta_trainA.get(), pasta_testA.get()), (pasta_trainB.get(), pasta_testB.get())]:
-        todas_imagens = [f for f in os.listdir(origem) if f.endswith(('.png', '.jpg', '.jpeg'))]
-        num_teste = int(len(todas_imagens) * porcentagem_teste)
-        imagens_teste = random.sample(todas_imagens, num_teste)
-
-        os.makedirs(destino, exist_ok=True)
-        for img in imagens_teste:
-            shutil.move(os.path.join(origem, img), os.path.join(destino, img))
-
-    messagebox.showinfo("Sucesso", "Conjuntos de teste gerados com sucesso!")
-
-def verificar_estrutura_dataset():
-    diretorios = [pasta_trainA.get(), pasta_trainB.get(), pasta_testA.get(), pasta_testB.get()]
-    for diretorio in diretorios:
-        if not os.path.exists(diretorio):
-            return False
-        if not any(f.endswith(('.png', '.jpg', '.jpeg')) for f in os.listdir(diretorio)):
-            return False
-    return True
-
-def preparar_dataset():
-    diretorios = [pasta_trainA.get(), pasta_trainB.get(), pasta_testA.get(), pasta_testB.get()]
-    for diretorio in diretorios:
-        os.makedirs(diretorio, exist_ok=True)
-    
-    # Se testA e testB estiverem vazios, mova algumas imagens de trainA e trainB
-    if not os.listdir(pasta_testA.get()):
-        mover_imagens_para_teste(pasta_trainA.get(), pasta_testA.get())
-    if not os.listdir(pasta_testB.get()):
-        mover_imagens_para_teste(pasta_trainB.get(), pasta_testB.get())
-
-def mover_imagens_para_teste(origem, destino, quantidade=10):
-    imagens = [f for f in os.listdir(origem) if f.endswith(('.png', '.jpg', '.jpeg'))]
-    for imagem in imagens[:quantidade]:
-        shutil.move(os.path.join(origem, imagem), os.path.join(destino, imagem))
-
-def executar_treinamento():
-    if not verificar_estrutura_dataset():
-        resposta = messagebox.askyesno("Aviso", "A estrutura do dataset não está correta. Deseja prepará-la automaticamente?")
-        if resposta:
-            preparar_dataset()
-        else:
-            messagebox.showerror("Erro", "Por favor, prepare o dataset manualmente e tente novamente.")
-            return
-
-    # Configuração do ambiente
-    os.environ["PYTHONPATH"] = "."
-    os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-    os.environ["TOKENIZERS_PARALLELISM"] = "false"
-    os.environ["OMP_NUM_THREADS"] = "1"
-    os.environ["NCCL_P2P_DISABLE"] = "1"
-    os.environ["WANDB_API_KEY"] = wandb_api_key.get()
-
-    # Comando de treinamento
-    comando = f"""
-    python src/train_cyclegan_turbo.py \
-        --pretrained_model_name_or_path="stabilityai/sd-turbo" \
-        --output_dir="output/cyclegan_turbo/my_dataset" \
-        --dataset_folder="{os.path.dirname(pasta_trainA.get())}" \
-        --train_img_prep "resize_286_randomcrop_256x256_hflip" --val_img_prep "no_resize" \
-        --learning_rate="1e-5" --max_train_steps=25000 \
-        --train_batch_size=1 --gradient_accumulation_steps=1 \
-        --report_to "wandb" --tracker_project_name="{wandb_project_name.get()}" \
-        --enable_xformers_memory_efficient_attention --validation_steps 250 \
-        --lambda_gan 0.5 --lambda_idt 1 --lambda_cycle 1 \
-        --mixed_precision="fp16" --use_8bit_adam
-    """
-    
-    # Execução do comando
-    process = subprocess.Popen(comando, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
-    
-    # Monitoramento do processo
-    for line in process.stdout:
-        print(line.decode(), end='')
-    
-    process.wait()
-    
-    if process.returncode == 0:
-        messagebox.showinfo("Sucesso", "Treinamento concluído com sucesso!")
-    else:
-        messagebox.showerror("Erro", f"Ocorreu um erro durante o treinamento. Código de saída: {process.returncode}")
-
-def testar_conexao_wandb():
-    if not wandb_api_key.get():
-        messagebox.showerror("Erro", "Por favor, insira a API key do Weights & Biases.")
-        return
-
-    try:
-        import wandb
-    except ImportError:
-        resposta = messagebox.askyesno("Módulo não encontrado", "O módulo wandb não está instalado. Deseja instalá-lo agora?")
-        if resposta:
-            try:
-                subprocess.check_call([sys.executable, "-m", "pip", "install", "wandb"])
-                messagebox.showinfo("Sucesso", "O módulo wandb foi instalado com sucesso. Por favor, reinicie o aplicativo.")
-                return
-            except subprocess.CalledProcessError as e:
-                messagebox.showerror("Erro", f"Falha ao instalar o módulo wandb: {e}")
-                return
-        else:
-            return
-
-    try:
-        wandb.login(key=wandb_api_key.get())
-        messagebox.showinfo("Sucesso", "Conexão com wandb.ai estabelecida com sucesso!")
-        salvar_configuracoes()
-    except Exception as e:
-        messagebox.showerror("Erro", f"Falha na conexão com wandb.ai: {e}")
-
-def mostrar_arquivos_gerados():
-    diretorio_saida = os.path.join(pasta_projeto, "output", "cyclegan_turbo", "my_dataset")
-    if not os.path.exists(diretorio_saida):
-        messagebox.showinfo("Informação", "O diretório de saída ainda não foi criado. Execute o treinamento primeiro.")
-        return
-
-    mensagem = "Arquivos e diretórios gerados:\n\n"
-    for root, dirs, files in os.walk(diretorio_saida):
-        nivel = root.replace(diretorio_saida, '').count(os.sep)
-        indent = ' ' * 4 * nivel
-        mensagem += f"{indent}{os.path.basename(root)}/\n"
-        sub_indent = ' ' * 4 * (nivel + 1)
-        for f in files:
-            mensagem += f"{sub_indent}{f}\n"
-
-    messagebox.showinfo("Arquivos Gerados", mensagem)
-
-# Botões reorganizados
-ttk.Button(frame_treinamento, text="Iniciar Treinamento", command=executar_treinamento).grid(row=7, column=1, pady=10)
-ttk.Button(frame_treinamento, text="Testar Conexão wandb.ai", command=testar_conexao_wandb).grid(row=8, column=1, pady=10)
-ttk.Button(frame_treinamento, text="Mostrar Arquivos Gerados", command=mostrar_arquivos_gerados).grid(row=9, column=1, pady=10)
-ttk.Button(frame_treinamento, text="Verificar Diretórios", command=verificar_diretorios).grid(row=10, column=1, pady=10)
-ttk.Button(frame_treinamento, text="Gerar Conjuntos de Teste", command=gerar_conjuntos_teste).grid(row=11, column=1, pady=10)
-
-# Carregar configurações salvas
-carregar_configuracoes()
+# Carregar dados no início
+carregar_configuracoes_iniciais()  # Alterado de carregar_configuracoes() para carregar_configuracoes_iniciais()
 carregar_historico()
+adicionar_observadores()
 
+# Iniciar o loop principal
 janela.mainloop()
+
+def salvar_wandb_key():
+    """Salva a chave da API do W&B nas configurações"""
+    try:
+        chave = wandb_api_key.get()
+        projeto = wandb_project_name.get()
+        
+        if not chave or not projeto:
+            messagebox.showerror("Erro", "Por favor, preencha a chave da API e o nome do projeto")
+            return
+        
+        config = carregar_configuracoes()
+        config['wandb_api_key'] = chave
+        config['wandb_project_name'] = projeto
+        salvar_configuracoes(config)
+        
+        print("Configurações salvas:", config)  # Debug para verificar o que está sendo salvo
+        messagebox.showinfo("Sucesso", "Configurações do W&B salvas com sucesso!")
+    except Exception as e:
+        print(f"Erro ao salvar chave W&B: {str(e)}")
+        messagebox.showerror("Erro", f"Erro ao salvar configurações: {str(e)}")
