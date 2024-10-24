@@ -1,7 +1,7 @@
 {
     "wandb_api_key": "3994c9f058cb2e8f1fa8d2897ea63a94d7e03730",
     "wandb_project_name": "diaparanoite",
-    "passos_treinamento": "1000",
-    "taxa_aprendizagem": "0.0001",
-    "tamanho_lote": "1"
+    "passos_treinamento": "5000",
+    "taxa_aprendizagem": "0.00005",
+    "tamanho_lote": "2"
 }

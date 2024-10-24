@@ -2,7 +2,9 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import subprocess
 import os
+import argparse
 import json
+import torch
 from PIL import Image, ImageTk
 import datetime
 import sys
@@ -13,6 +15,38 @@ import shutil
 import numpy as np
 import tkinter.scrolledtext as scrolledtext
 import requests
+from torchvision import transforms
+import torchvision.transforms.functional as F
+from glob import glob
+
+# Adicionar a função build_transform
+def build_transform(image_prep):
+    """
+    Constructs a transformation pipeline based on the specified image preparation method.
+    """
+    if image_prep == "resized_crop_512":
+        T = transforms.Compose([
+            transforms.Resize(512, interpolation=transforms.InterpolationMode.LANCZOS),
+            transforms.CenterCrop(512),
+        ])
+    elif image_prep == "resize_286_randomcrop_256x256_hflip":
+        T = transforms.Compose([
+            transforms.Resize((286, 286), interpolation=Image.LANCZOS),
+            transforms.RandomCrop((256, 256)),
+            transforms.RandomHorizontalFlip(),
+        ])
+    elif image_prep in ["resize_256", "resize_256x256"]:
+        T = transforms.Compose([
+            transforms.Resize((256, 256), interpolation=Image.LANCZOS)
+        ])
+    elif image_prep in ["resize_512", "resize_512x512"]:
+        T = transforms.Compose([
+            transforms.Resize((512, 512), interpolation=Image.LANCZOS)
+        ])
+    elif image_prep == "no_resize":
+        T = transforms.Lambda(lambda x: x)
+    return T
+
 
 # Definir caminhos
 pasta_projeto = "C:\\Users\\AndreGarcia\\Desktop\\NtoD\\img2img-turbo"
@@ -261,6 +295,19 @@ def instalar_triton():
 
 def executar_treinamento():
     try:
+        # Inicializar info_treinamento no início da função
+        info_treinamento = {
+            'data': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            'passos': passos_treinamento.get(),
+            'taxa_aprendizagem': taxa_aprendizagem.get(),
+            'tamanho_lote': tamanho_lote.get(),
+            'status': 'iniciado'
+        }
+        
+        # Definir o método de transformação que será usado
+        transform_method = "resize_256x256"
+        T = build_transform(transform_method)
+        
         # Carregar configurações salvas
         config = carregar_configuracoes()
         
@@ -270,8 +317,8 @@ def executar_treinamento():
             
             # Argumentos obrigatórios
             "--dataset_folder", pasta_dados,
-            "--train_img_prep", "resize_286_randomcrop_256x256_hflip",
-            "--val_img_prep", "no_resize",
+            "--train_img_prep", transform_method,  # Usar a mesma transformação definida acima
+            "--val_img_prep", transform_method,    # Usar a mesma transformação para validação
             "--output_dir", pasta_saida,
             "--tracker_project_name", config.get('wandb_project_name', 'diaparanoite'),
             
@@ -296,6 +343,7 @@ def executar_treinamento():
             "--gradient_accumulation_steps", "1",
             "--enable_xformers_memory_efficient_attention",
             "--gradient_checkpointing",
+            "--allow_tf32",  
             
             # Validação e logging
             "--validation_steps", "500",
@@ -353,11 +401,13 @@ def executar_treinamento():
         janela.after(10, atualizar_progresso)
         
     except Exception as e:
+        # Atualizar status para 'erro' em caso de exceção
         info_treinamento['status'] = 'erro'
         info_treinamento['erro'] = str(e)
-        info_treinamento['data_fim'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        messagebox.showerror("Erro", f"Erro ao executar treinamento: {str(e)}")
+    finally:
+        # Adicionar ao histórico independentemente do resultado
         adicionar_ao_historico(info_treinamento)
-        messagebox.showerror("Erro", f"Erro no treino: {e}")
 
 def testar_conexao_wandb():
     api_key = wandb_api_key.get()
@@ -672,6 +722,31 @@ ttk.Entry(frame_params, textvariable=taxa_aprendizagem, width=10).grid(row=1, co
 ttk.Label(frame_params, text="Tamanho do lote:").grid(row=2, column=0, sticky="w", pady=5)
 ttk.Entry(frame_params, textvariable=tamanho_lote, width=10).grid(row=2, column=1, sticky="w", pady=5)
 
+def configurar_ambiente():
+    """Configura o ambiente com todas as dependências necessárias"""
+    try:
+        # Lista de pacotes com versões específicas
+        pacotes = [
+            "torch==2.0.1",
+            "torchvision==0.15.2",
+            "diffusers==0.25.1",
+            "huggingface-hub==0.25.2",
+            "transformers==4.30.2",
+            "accelerate==0.20.3",
+            "wandb",
+            "pillow",
+            "tqdm",
+            "numpy"
+        ]
+        
+        for pacote in pacotes:
+            messagebox.showinfo("Progresso", f"Instalando {pacote}...")
+            subprocess.check_call([sys.executable, "-m", "pip", "install", pacote])
+        
+        messagebox.showinfo("Sucesso", "Ambiente configurado com sucesso!")
+    except subprocess.CalledProcessError as e:
+        messagebox.showerror("Erro", f"Falha ao configurar ambiente: {e}")
+
 # Botões principais no frame_acoes
 botoes_principais = [
     ("Iniciar Treino", executar_treinamento),
@@ -681,7 +756,8 @@ botoes_principais = [
     ("Dividir Imagens (Treino/Teste)", gerar_conjuntos_teste),
     ("Ver Histórico", mostrar_historico),
     ("Reinstalar Diffusers 0.25.1", reinstalar_diffusers),
-    ("Reinstalar Huggingface 0.25.2", reinstalar_huggingface)  # Novo botão
+    ("Reinstalar Huggingface 0.25.2", reinstalar_huggingface),
+    ("Configurar Novo Ambiente", configurar_ambiente)
 ]
 
 for i, (texto, comando) in enumerate(botoes_principais):
@@ -719,4 +795,6 @@ def salvar_wandb_key():
     except Exception as e:
         print(f"Erro ao salvar chave W&B: {str(e)}")
         messagebox.showerror("Erro", f"Erro ao salvar configurações: {str(e)}")
+
+
 
