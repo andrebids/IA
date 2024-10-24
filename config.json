@@ -3,5 +3,5 @@
     "wandb_project_name": "diaparanoite",
     "passos_treinamento": "5000",
     "taxa_aprendizagem": "0.00005",
-    "tamanho_lote": "2"
+    "tamanho_lote": "4"
 }

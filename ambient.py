@@ -136,6 +136,7 @@ wandb_project_name = tk.StringVar()
 passos_treinamento = tk.StringVar(value="1000")
 taxa_aprendizagem = tk.StringVar(value="0.0001")
 tamanho_lote = tk.StringVar(value="1")
+passos_checkpoint = tk.StringVar(value="500") 
 
 # Funções de configuração
 def carregar_configuracoes():
@@ -181,6 +182,8 @@ def carregar_configuracoes_iniciais():
             wandb_project_name.set(config['wandb_project_name'])
         
         # Carregar outras configurações
+        if 'passos_checkpoint' in config:
+            passos_checkpoint.set(config['passos_checkpoint'])
         if 'passos_treinamento' in config:
             passos_treinamento.set(config['passos_treinamento'])
         if 'taxa_aprendizagem' in config:
@@ -206,7 +209,9 @@ def callback(*args):
         'wandb_project_name': wandb_project_name.get(),
         'passos_treinamento': passos_treinamento.get(),
         'taxa_aprendizagem': taxa_aprendizagem.get(),
-        'tamanho_lote': tamanho_lote.get()
+        'tamanho_lote': tamanho_lote.get(),
+        'passos_checkpoint': passos_checkpoint.get()  # Adicionar nova configuração
+
     }
     salvar_configuracoes(config)
 
@@ -217,6 +222,7 @@ def adicionar_observadores():
     passos_treinamento.trace_add("write", callback)
     taxa_aprendizagem.trace_add("write", callback)
     tamanho_lote.trace_add("write", callback)
+    passos_checkpoint.trace_add("write", callback)
 
 # Funções de histórico
 def carregar_historico():
@@ -319,8 +325,11 @@ def executar_treinamento():
             "--dataset_folder", pasta_dados,
             "--train_img_prep", transform_method,  # Usar a mesma transformação definida acima
             "--val_img_prep", transform_method,    # Usar a mesma transformação para validação
-            "--output_dir", pasta_saida,
+            "--output_dir", pasta_checkpoints,  # Alterado de pasta_saida para pasta_checkpoints
             "--tracker_project_name", config.get('wandb_project_name', 'diaparanoite'),
+            
+            # Adicionar argumento de checkpointing
+            "--checkpointing_steps", passos_checkpoint.get(),
             
             # Argumentos do modelo
             "--pretrained_model_name_or_path", "stabilityai/sd-turbo",
@@ -721,6 +730,10 @@ ttk.Entry(frame_params, textvariable=taxa_aprendizagem, width=10).grid(row=1, co
 
 ttk.Label(frame_params, text="Tamanho do lote:").grid(row=2, column=0, sticky="w", pady=5)
 ttk.Entry(frame_params, textvariable=tamanho_lote, width=10).grid(row=2, column=1, sticky="w", pady=5)
+
+# Na seção de configurações do frame_params
+ttk.Label(frame_params, text="Passos para checkpoint:").grid(row=3, column=0, sticky="w", pady=5)
+ttk.Entry(frame_params, textvariable=passos_checkpoint, width=10).grid(row=3, column=1, sticky="w", pady=5)
 
 def configurar_ambiente():
     """Configura o ambiente com todas as dependências necessárias"""
