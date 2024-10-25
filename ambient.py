@@ -138,6 +138,9 @@ taxa_aprendizagem = tk.StringVar(value="0.0001")
 tamanho_lote = tk.StringVar(value="1")
 passos_checkpoint = tk.StringVar(value="500") 
 
+# Adicionar variável global
+continuar_treino = tk.BooleanVar(value=True)
+
 # Funções de configuração
 def carregar_configuracoes():
     """Carrega as configurações do arquivo JSON"""
@@ -301,14 +304,29 @@ def instalar_triton():
 
 def executar_treinamento():
     try:
-        # Inicializar info_treinamento no início da função
-        info_treinamento = {
-            'data': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            'passos': passos_treinamento.get(),
-            'taxa_aprendizagem': taxa_aprendizagem.get(),
-            'tamanho_lote': tamanho_lote.get(),
-            'status': 'iniciado'
-        }
+        # Verificar se existe checkpoint anterior
+        checkpoints_existentes = [f for f in os.listdir(pasta_checkpoints) if f.endswith('.pkl')]
+        ultimo_checkpoint = None
+        
+        if checkpoints_existentes:
+            # Ordenar por data de modificação
+            checkpoints_existentes.sort(key=lambda x: os.path.getmtime(os.path.join(pasta_checkpoints, x)))
+            ultimo_checkpoint = os.path.join(pasta_checkpoints, checkpoints_existentes[-1])
+        
+        # Configurar comando base
+        comando = [
+            sys.executable,
+            os.path.join(pasta_projeto, "src", "train_cyclegan_turbo.py"),
+            "--dataset_folder", pasta_dados,
+            "--output_dir", pasta_checkpoints,
+        ]
+        
+        # Adicionar checkpoint se existir
+        if continuar_treino.get() and ultimo_checkpoint:
+            comando.extend([
+                "--resume_from_checkpoint", ultimo_checkpoint,
+                "--continue_training"
+            ])
         
         # Definir o método de transformação que será usado
         transform_method = "resize_256x256"
@@ -317,19 +335,17 @@ def executar_treinamento():
         # Carregar configurações salvas
         config = carregar_configuracoes()
         
-        comando = [
-            sys.executable,
-            os.path.join(pasta_projeto, "src", "train_cyclegan_turbo.py"),
-            
+        comando.extend([
+            "--train_img_prep", transform_method,
+            "--val_img_prep", transform_method,
+            "--tracker_project_name", config.get('wandb_project_name', 'diaparanoite'),
+            "--checkpointing_steps", passos_checkpoint.get(),
             # Argumentos obrigatórios
             "--dataset_folder", pasta_dados,
             "--train_img_prep", transform_method,  # Usar a mesma transformação definida acima
             "--val_img_prep", transform_method,    # Usar a mesma transformação para validação
             "--output_dir", pasta_checkpoints,  # Alterado de pasta_saida para pasta_checkpoints
             "--tracker_project_name", config.get('wandb_project_name', 'diaparanoite'),
-            
-            # Adicionar argumento de checkpointing
-            "--checkpointing_steps", passos_checkpoint.get(),
             
             # Argumentos do modelo
             "--pretrained_model_name_or_path", "stabilityai/sd-turbo",
@@ -353,11 +369,13 @@ def executar_treinamento():
             "--enable_xformers_memory_efficient_attention",
             "--gradient_checkpointing",
             "--allow_tf32",  
+            "--mixed_precision", "fp16",    # Adicionar mixed precision
+            "--allow_tf32",
             
             # Validação e logging
             "--validation_steps", "500",
             "--report_to", "wandb"
-        ]
+        ])
 
         # Configurar variável de ambiente NCCL_P2P_DISABLE
         os.environ["NCCL_P2P_DISABLE"] = "1"
@@ -507,6 +525,27 @@ def mostrar_historico():
         texto_historico.insert(tk.END, texto)
     
     texto_historico.configure(state='disabled')
+
+def mostrar_info_checkpoint():
+    checkpoints = [f for f in os.listdir(pasta_checkpoints) if f.endswith('.pkl')]
+    if not checkpoints:
+        messagebox.showinfo("Info", "Nenhum checkpoint encontrado")
+        return
+        
+    ultimo_checkpoint = max(
+        checkpoints,
+        key=lambda x: os.path.getmtime(os.path.join(pasta_checkpoints, x))
+    )
+    
+    data_modificacao = datetime.datetime.fromtimestamp(
+        os.path.getmtime(os.path.join(pasta_checkpoints, ultimo_checkpoint))
+    ).strftime("%d/%m/%Y %H:%M:%S")
+    
+    mensagem = f"""
+    Último checkpoint: {ultimo_checkpoint}
+    Data: {data_modificacao}
+    """
+    messagebox.showinfo("Info do Checkpoint", mensagem)
 
 # Aba de Conversão
 aba_conversao = ttk.Frame(notebook)
@@ -735,6 +774,13 @@ ttk.Entry(frame_params, textvariable=tamanho_lote, width=10).grid(row=2, column=
 ttk.Label(frame_params, text="Passos para checkpoint:").grid(row=3, column=0, sticky="w", pady=5)
 ttk.Entry(frame_params, textvariable=passos_checkpoint, width=10).grid(row=3, column=1, sticky="w", pady=5)
 
+# No frame de parâmetros de treino
+ttk.Checkbutton(
+    frame_params, 
+    text="Continuar último treino", 
+    variable=continuar_treino
+).grid(row=4, column=0, columnspan=2, sticky="w", pady=5)
+
 def configurar_ambiente():
     """Configura o ambiente com todas as dependências necessárias"""
     try:
@@ -808,6 +854,11 @@ def salvar_wandb_key():
     except Exception as e:
         print(f"Erro ao salvar chave W&B: {str(e)}")
         messagebox.showerror("Erro", f"Erro ao salvar configurações: {str(e)}")
+
+
+
+
+
 
 
 
